@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoodTune | AI Music Discovery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('moodApp', () => ({
+                view: 'intro',
+                step: 0, 
+                inputMode: 'sliders', 
+                loading: false,
+                error: false,
+                errorMessage: '',
+                userName: '',
+                
+                searchQuery: '',
+                sidebarOpen: false,
+                guideOpen: false,
+                aboutOpen: false,
+                exportOpen: false,
+                addToPlaylistOpen: false,
+                reportExpanded: false, 
+                sidebarReportExpanded: false,
+                activePlaylist: null, 
+                trackToAdd: null,
+                
+                selectedForExport: [],
+                
+                theme: {
+                    primary: '#8b5cf6',   
+                    secondary: '#ec4899', 
+                    bgGradient: 'radial-gradient(circle at 0% 0%, rgba(139, 92, 246, 0.15) 0%, transparent 40%), radial-gradient(circle at 100% 100%, rgba(236, 72, 153, 0.1) 0%, transparent 40%)'
+                },
+
+                allRecommendations: [],
+                recommendations: [], 
+                moodReport: '',
+                oneLiner: '',
+                favorites: [],
+                playlists: [],
+                
+                inputs: {
+                    energy: 5,
+                    happiness: 5,
+                    dance: 5,
+                    style: 5,
+                    genre: "0"
+                },
+
+                descriptors: {
+                    energy: ["Deep Sleep", "Very Low", "Chill", "Relaxed", "Mellow", "Balanced", "Upbeat", "Active", "High Energy", "Intense", "Explosive"],
+                    happiness: ["Despair", "Melancholy", "Sad", "Somber", "Moody", "Neutral", "Content", "Cheerful", "Happy", "Joyful", "Euphoric"],
+                    dance: ["Static", "Ambient", "Swaying", "Gentle", "Steady", "Groovy", "Bouncy", "Danceable", "Driving", "Club Ready", "Rave"],
+                    style: ["Pure Acoustic", "Organic", "Raw", "Unplugged", "Natural", "Hybrid", "Processed", "Electric", "Synthesized", "Digital", "Futuristic"]
+                },
+
+                questions: [
+                    { id: 1, key: 'energy', title: "Energy Level", desc: "Set the intensity baseline.", icon: "ph-lightning" },
+                    { id: 2, key: 'happiness', title: "Emotional Tone", desc: "From dark to light.", icon: "ph-smiley" },
+                    { id: 3, key: 'dance', title: "Rhythm", desc: "How much do you want to move?", icon: "ph-speaker-high" },
+                    { id: 4, key: 'style', title: "Texture", desc: "Acoustic vs. Electronic balance.", icon: "ph-guitar" },
+                    { id: 5, key: 'genre', title: "Genre Base", desc: "Pick a starting point.", icon: "ph-music-notes" }
+                ],
+
+                genres: [
+                    { id: "0", label: "Surprise Me (Any)" },
+                    { id: "9", label: "Lofi / Chillhop" },
+                    { id: "10", label: "Classical" },
+                    { id: "1", label: "Hip-Hop / Rap" },
+                    { id: "2", label: "Pop" },
+                    { id: "3", label: "Rock" },
+                    { id: "4", label: "Country" },
+                    { id: "5", label: "EDM" },
+                    { id: "6", label: "Latin" },
+                    { id: "7", label: "K-pop" },
+                    { id: "8", label: "R&B / Soul" }
+                ],
+
+                init() {
+                    try {
+                        const savedFavs = localStorage.getItem('moodtune_favs');
+                        if (savedFavs) this.favorites = JSON.parse(savedFavs);
+                        const savedPlaylists = localStorage.getItem('moodtune_playlists');
+                        if (savedPlaylists) this.playlists = JSON.parse(savedPlaylists);
+                        const savedUser = localStorage.getItem('moodtune_user');
+                        if (savedUser) {
+                            this.userName = savedUser;
+                            this.view = 'home';
+                        }
+                    } catch (e) {
+                        console.error("Error loading local storage", e);
+                        // Reset if corrupted
+                        localStorage.removeItem('moodtune_favs');
+                        localStorage.removeItem('moodtune_playlists');
+                    }
+                },
+
+                saveUser() {
+                    if(this.userName.trim() === '') return;
+                    localStorage.setItem('moodtune_user', this.userName);
+                    this.view = 'home';
+                },
+
+                getDescriptor(key, val) {
+                    if (this.descriptors[key]) return this.descriptors[key][Math.round(val)];
+                    return val;
+                },
+
+                getPlaylistColor(playlist) {
+                    if (playlist.type === 'favorites') return 'from-red-500 to-pink-600';
+                    const hash = playlist.name.length; 
+                    if (hash % 4 === 0) return 'from-orange-500 to-red-600'; 
+                    if (hash % 4 === 1) return 'from-blue-500 to-indigo-600'; 
+                    if (hash % 4 === 2) return 'from-emerald-500 to-teal-600'; 
+                    return 'from-violet-500 to-fuchsia-600'; 
+                },
+
+                updateTheme() {
+                    const e = parseInt(this.inputs.energy);
+                    const h = parseInt(this.inputs.happiness);
+                    let p, s;
+                    if (e >= 7) { if (h >= 6) { p = '#f59e0b'; s = '#ef4444'; } else { p = '#ef4444'; s = '#7f1d1d'; } } 
+                    else if (e <= 4) { if (h >= 6) { p = '#10b981'; s = '#3b82f6'; } else { p = '#6366f1'; s = '#4b5563'; } } 
+                    else { p = '#8b5cf6'; s = '#ec4899'; }
+                    this.theme.primary = p; this.theme.secondary = s;
+                    this.theme.bgGradient = `radial-gradient(circle at 0% 0%, ${p}22 0%, transparent 40%), radial-gradient(circle at 100% 100%, ${s}1a 0%, transparent 40%)`;
+                },
+
+                getGradient(str) {
+                    let hash = 0;
+                    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                    const h = Math.abs(hash) % 360;
+                    return `linear-gradient(135deg, hsl(${h}, 70%, 60%), hsl(${h + 40}, 80%, 40%))`;
+                },
+
+                setView(v) {
+                    this.view = v; 
+                    this.sidebarOpen = false; 
+                    this.searchQuery = '';
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                },
+
+                nextStep() {
+                    if (this.step < 5) this.step++; 
+                },
+
+                prevStep() {
+                    if (this.step > 1) this.step--; else this.setView('home');
+                },
+
+                // New method to handle Navigation vs Start
+                resumeDiscovery() {
+                    if (this.step === 0) {
+                         this.startDiscovery();
+                    } else {
+                         this.setView('discover');
+                    }
+                },
+
+                startDiscovery() {
+                    this.step = 1; this.inputs.energy = 5; this.inputs.happiness = 5; this.updateTheme(); this.setView('discover');
+                },
+
+                restart() {
+                    this.step = 1; this.allRecommendations = []; this.recommendations = []; this.moodReport = ''; this.setView('discover');
+                },
+                
+                reshuffle() {
+                    if (this.allRecommendations.length > 0) this.recommendations = [...this.allRecommendations].sort(() => 0.5 - Math.random()).slice(0, 12);
+                },
+
+                get filteredPlaylists() {
+                    if (!this.searchQuery) return this.playlists;
+                    const q = this.searchQuery.toLowerCase();
+                    return this.playlists.filter(p => p.name.toLowerCase().includes(q));
+                },
+
+                get activeTracks() {
+                    if (!this.activePlaylist) return [];
+                    let tracks = (this.activePlaylist.type === 'favorites') ? this.favorites : this.activePlaylist.tracks;
+                    if (this.searchQuery) {
+                        const q = this.searchQuery.toLowerCase();
+                        return tracks.filter(t => t.name.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q));
+                    }
+                    return tracks;
+                },
+
+                openSidebar(type, playlist = null) {
+                    this.searchQuery = ''; 
+                    this.sidebarReportExpanded = false;
+                    if (type === 'favorites') {
+                        this.activePlaylist = { name: 'Liked Songs', type: 'favorites', date: 'All time', report: 'Your personal collection.', oneLiner: 'The Favorites' };
+                    } else {
+                        this.activePlaylist = { ...playlist, type: 'playlist' };
+                    }
+                    this.sidebarOpen = true;
+                },
+
+                closeSidebar() {
+                    this.sidebarOpen = false;
+                    this.searchQuery = ''; 
+                    setTimeout(() => { this.activePlaylist = null; }, 300);
+                },
+
+                createPlaylist() {
+                    if (this.recommendations.length === 0) return;
+                    const name = prompt("Name your playlist:", `${this.userName}'s Mix`);
+                    if (!name) return;
+                    
+                    const includeReport = confirm("Include Mood Analysis & One-Liner in metadata?");
+                    
+                    const newList = { 
+                        id: Date.now(), 
+                        name: name, 
+                        date: new Date().toLocaleDateString(), 
+                        report: includeReport ? this.moodReport : "Custom Collection", 
+                        oneLiner: includeReport ? this.oneLiner : "User Created",
+                        tracks: [...this.recommendations] 
+                    };
+                    this.playlists.unshift(newList);
+                    localStorage.setItem('moodtune_playlists', JSON.stringify(this.playlists));
+                    this.openSidebar('playlist', newList);
+                },
+                
+                createNewPlaylist() {
+                     const name = prompt("New Playlist Name:", "New Playlist");
+                     if (!name) return;
+                     const newList = { id: Date.now(), name: name, date: new Date().toLocaleDateString(), report: "Manual Collection", oneLiner: "Handpicked", tracks: [] };
+                     this.playlists.unshift(newList);
+                     localStorage.setItem('moodtune_playlists', JSON.stringify(this.playlists));
+                     this.openSidebar('playlist', newList);
+                     return newList;
+                },
+                
+                createAndAddToPlaylist() {
+                    const newList = this.createNewPlaylist();
+                    if(newList) {
+                        this.commitAddToPlaylist(newList);
+                    }
+                },
+
+                editPlaylistName(id) {
+                    const p = this.playlists.find(p => p.id === id);
+                    if(!p) return;
+                    const newName = prompt("Rename playlist:", p.name);
+                    if(newName) {
+                        p.name = newName;
+                        localStorage.setItem('moodtune_playlists', JSON.stringify(this.playlists));
+                        if(this.activePlaylist && this.activePlaylist.id === id) this.activePlaylist.name = newName;
+                    }
+                },
+
+                toggleFavorite(track) {
+                    const idx = this.favorites.findIndex(t => t.id === track.id);
+                    if (idx > -1) this.favorites.splice(idx, 1); else this.favorites.push(track);
+                    localStorage.setItem('moodtune_favs', JSON.stringify(this.favorites));
+                },
+                isFavorite(trackId) { return this.favorites.some(t => t.id === trackId); },
+                
+                openAddToPlaylist(track) {
+                    this.trackToAdd = track;
+                    this.addToPlaylistOpen = true;
+                },
+
+                commitAddToPlaylist(playlist) {
+                    if (!this.trackToAdd) return;
+                    if (playlist.tracks.some(t => t.id === this.trackToAdd.id)) {
+                        alert("Track already in this playlist.");
+                    } else {
+                        playlist.tracks.push(this.trackToAdd);
+                        localStorage.setItem('moodtune_playlists', JSON.stringify(this.playlists));
+                        this.addToPlaylistOpen = false;
+                        this.trackToAdd = null;
+                    }
+                },
+
+                deletePlaylist(id) {
+                    if(confirm("Delete this playlist?")) {
+                        this.playlists = this.playlists.filter(p => p.id !== id);
+                        localStorage.setItem('moodtune_playlists', JSON.stringify(this.playlists));
+                        if (this.activePlaylist && this.activePlaylist.id === id) this.closeSidebar();
+                    }
+                },
+
+                openExportModal() {
+                    this.selectedForExport = ['favorites', ...this.playlists.map(p => String(p.id))];
+                    this.exportOpen = true;
+                },
+
+                exportSelectedCSV() {
+                    // Removed Year from Headers
+                    const headers = ["Source", "Track Name", "Artist", "Genre", "Spotify Link"];
+                    
+                    const escape = (text) => {
+                        if (text === null || text === undefined) return '';
+                        const str = String(text);
+                        if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+                            return `"${str.replace(/"/g, '""')}"`; 
+                        }
+                        return str; 
+                    };
+
+                    const rows = [];
+                    rows.push(headers.map(h => `"${h}"`).join(',')); 
+
+                    if (this.selectedForExport.includes('favorites')) {
+                        this.favorites.forEach(t => {
+                            const row = [
+                                "Liked Songs",
+                                t.name,
+                                t.artist,
+                                t.genre,
+                                // Removed Year
+                                `https://open.spotify.com/track/${t.id}`
+                            ];
+                            rows.push(row.map(escape).join(','));
+                        });
+                    }
+
+                    this.playlists.forEach(p => {
+                        if (this.selectedForExport.includes(String(p.id))) {
+                            p.tracks.forEach(t => {
+                                const row = [
+                                    p.name,
+                                    t.name,
+                                    t.artist,
+                                    t.genre,
+                                    // Removed Year
+                                    `https://open.spotify.com/track/${t.id}`
+                                ];
+                                rows.push(row.map(escape).join(','));
+                            });
+                        }
+                    });
+
+                    const csvContent = rows.join('\n');
+                    const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    const link = document.createElement("a");
+                    link.setAttribute("href", url);
+                    link.setAttribute("download", `MoodTune_Library_${new Date().toISOString().slice(0,10)}.csv`);
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                    
+                    this.exportOpen = false;
+                },
+
+                // Removed triggerRestore (Import functionality removed in previous step)
+
+                async submitQuiz() {
+                    this.step = 6; this.loading = true; this.error = false; this.updateTheme();
+                    try {
+                        await new Promise(r => setTimeout(r, 800));
+                        const payload = { ...this.inputs, name: this.userName };
+                        const response = await fetch('/api/recommend', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                        const data = await response.json();
+                        if (data.status === 'success') {
+                            this.allRecommendations = data.recommendations;
+                            this.moodReport = data.mood_report;
+                            this.oneLiner = data.one_liner;
+                            this.reshuffle();
+                            this.loading = false; 
+                        } else { throw new Error(data.message || 'Failed to fetch recommendations'); }
+                    } catch (err) {
+                        this.loading = false; this.error = true; this.errorMessage = err.message;
+                    }
+                }
+            }))
+        })
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js"></script>
+
+    <style>
+        [x-cloak] { display: none !important; }
+        body { font-family: 'Outfit', sans-serif; background-color: #09090b; color: #ffffff; background-attachment: fixed; overflow-x: hidden; transition: background-image 0.5s ease; }
+        .glass-card { background: rgba(24, 24, 27, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 4px 20px rgba(0,0,0,0.2); transition: border-color 0.3s ease; }
+        .glass-nav { background: rgba(9, 9, 11, 0.8); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255,255,255,0.05); }
+        input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; background: transparent; cursor: pointer; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 28px; width: 28px; border-radius: 50%; background: white; cursor: pointer; margin-top: -12px; box-shadow: 0 0 20px rgba(255,255,255,0.6); transition: transform 0.1s; border: 3px solid rgba(0,0,0,0.1); }
+        input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; }
+        .range-ticks { position: relative; height: 10px; margin-top: 10px; width: 100%; }
+        .range-tick { position: absolute; top: 0; width: 2px; height: 8px; background: rgba(255,255,255,0.2); transform: translateX(-50%); }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.4s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        .animate-hint { animation: slideHint 2s infinite; }
+        @keyframes slideHint { 0%, 100% { transform: translateX(0); opacity: 0.5; } 50% { transform: translateX(10px); opacity: 1; } }
+    </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col" x-data="moodApp" x-cloak :style="'background-image: ' + theme.bgGradient">
+
+    <!-- Nav -->
+    <nav class="glass-nav fixed top-0 w-full z-50 h-20" x-show="view !== 'intro'">
+        <div class="container mx-auto px-6 h-full flex justify-between items-center">
+            <div class="flex items-center gap-3 cursor-pointer" @click="setView('home')">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg transition-colors duration-500" :style="'background: linear-gradient(135deg, ' + theme.primary + ', ' + theme.secondary + ')'"><i class="ph-fill ph-wave-sine text-white text-xl"></i></div>
+                <span class="text-xl font-bold tracking-tight">MoodTune</span>
+            </div>
+            <div class="hidden md:flex items-center gap-6">
+                <button @click="setView('home')" class="text-sm font-medium hover:text-white transition-colors" :class="view === 'home' ? 'text-white' : 'text-gray-400'">Home</button>
+                <button @click="resumeDiscovery" class="text-sm font-medium hover:text-white transition-colors" :class="view === 'discover' ? 'text-white' : 'text-gray-400'">Discover</button>
+                <button @click="setView('library')" class="text-sm font-medium hover:text-white transition-colors" :class="view === 'library' ? 'text-white' : 'text-gray-400'">Library</button>
+                <div class="h-4 w-px bg-white/10 mx-2"></div>
+                <button @click="guideOpen = true" class="text-sm font-medium text-gray-400 hover:text-white transition-colors flex items-center gap-1"><i class="ph-bold ph-book"></i> Guide</button>
+                <button @click="aboutOpen = true" class="text-sm font-medium text-gray-400 hover:text-white transition-colors flex items-center gap-1"><i class="ph-bold ph-info"></i> About</button>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-400 font-medium" x-text="userName"></span>
+                <div class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-gray-300"><i class="ph-bold ph-user"></i></div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-grow container mx-auto px-4 pt-32 pb-20">
+
+        <!-- MODALS -->
+        <!-- Guide (Expanded) -->
+        <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" x-show="guideOpen" @click.self="guideOpen = false">
+            <div class="glass-card p-8 rounded-3xl max-w-4xl w-full m-4 relative max-h-[85vh] overflow-y-auto custom-scrollbar">
+                <button @click="guideOpen = false" class="absolute top-6 right-6 text-gray-400 hover:text-white"><i class="ph-bold ph-x text-xl"></i></button>
+                
+                <h2 class="text-3xl font-bold mb-2">User Guide</h2>
+                <p class="text-gray-400 mb-8">Master the art of mood-based discovery.</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
+                    <div class="space-y-4">
+                        <div class="w-10 h-10 rounded-full bg-violet-500/20 text-violet-400 flex items-center justify-center text-xl font-bold">1</div>
+                        <h3 class="text-xl font-bold">Tune Your Vibe</h3>
+                        <p class="text-gray-400 text-sm leading-relaxed">Use the 4 sonic sliders to define the exact texture of music you want. Energy, Happiness, Rhythm, and Style.</p>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="w-10 h-10 rounded-full bg-pink-500/20 text-pink-400 flex items-center justify-center text-xl font-bold">2</div>
+                        <h3 class="text-xl font-bold">Explore & Collect</h3>
+                        <p class="text-gray-400 text-sm leading-relaxed">Listen to previews, "Heart" tracks to save them to your Favorites, or add them to custom Playlists.</p>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xl font-bold">3</div>
+                        <h3 class="text-xl font-bold">Manage Library</h3>
+                        <p class="text-gray-400 text-sm leading-relaxed">Organize your playlists in the Library tab. You can even export your data to CSV for Spotify import.</p>
+                    </div>
+                </div>
+
+                <h3 class="text-xl font-bold mb-4 pt-6 border-t border-white/10">Sonic Color Code</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="p-4 rounded-xl bg-gradient-to-br from-orange-500/20 to-red-600/20 border border-red-500/30">
+                        <h3 class="font-bold text-red-400 mb-1">High Voltage</h3><p class="text-xs text-gray-400">Intense energy, party, workout, rage.</p>
+                    </div>
+                    <div class="p-4 rounded-xl bg-gradient-to-br from-blue-500/20 to-indigo-600/20 border border-blue-500/30">
+                        <h3 class="font-bold text-blue-400 mb-1">Deep Chill</h3><p class="text-xs text-gray-400">Sleep, relaxation, low energy ambient.</p>
+                    </div>
+                    <div class="p-4 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 border border-emerald-500/30">
+                        <h3 class="font-bold text-emerald-400 mb-1">Focused Flow</h3><p class="text-xs text-gray-400">Balanced, study, work, steady rhythm.</p>
+                    </div>
+                    <div class="p-4 rounded-xl bg-gradient-to-br from-violet-500/20 to-fuchsia-600/20 border border-fuchsia-500/30">
+                        <h3 class="font-bold text-fuchsia-400 mb-1">Emotional Depth</h3><p class="text-xs text-gray-400">Melancholy, introspection, complex feelings.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- About (Expanded) -->
+        <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" x-show="aboutOpen" @click.self="aboutOpen = false">
+            <div class="glass-card p-8 rounded-3xl max-w-2xl w-full m-4 relative">
+                <button @click="aboutOpen = false" class="absolute top-6 right-6 text-gray-400 hover:text-white"><i class="ph-bold ph-x text-xl"></i></button>
+                
+                <div class="mb-8 text-center">
+                    <div class="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-violet-900/20 mb-4"><i class="ph-fill ph-wave-sine text-white text-3xl"></i></div>
+                    <h2 class="text-3xl font-bold">About MoodTune</h2>
+                    <p class="text-gray-400 mt-2">V6.0 "Therapist Engine"</p>
+                </div>
+
+                <div class="space-y-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-white mb-2 flex items-center gap-2"><i class="ph-fill ph-cpu text-violet-500"></i> How It Works</h3>
+                        <p class="text-gray-400 text-sm leading-relaxed">
+                            Unlike traditional platforms that rely on "collaborative filtering" (what other people liked), MoodTune uses <strong>Content-Based Filtering</strong>. 
+                            We analyzed the raw audio features of 230,000+ tracks to understand their sonic DNA—measuring specific attributes like tempo, valence (musical positiveness), and energy.
+                        </p>
+                    </div>
+                    
+                    <div>
+                        <h3 class="text-lg font-bold text-white mb-2 flex items-center gap-2"><i class="ph-fill ph-sliders text-pink-500"></i> The Algorithm</h3>
+                        <p class="text-gray-400 text-sm leading-relaxed">
+                            When you adjust the sliders, you aren't just picking filters; you are constructing a mathematical <strong>Target Vector</strong> in high-dimensional space. 
+                            Our K-Nearest Neighbors (KNN) engine then calculates the Euclidean distance between your target mood and every song in our database to find the perfect mathematical matches.
+                        </p>
+                    </div>
+
+                    <div class="bg-white/5 rounded-xl p-4 border border-white/10 mt-6">
+                        <div class="text-xs uppercase tracking-widest text-gray-500 mb-3">Tech Stack</div>
+                        <div class="flex flex-wrap gap-3">
+                            <span class="px-3 py-1 rounded-full bg-blue-500/10 text-blue-300 text-xs font-bold border border-blue-500/20">Python / Flask</span>
+                            <span class="px-3 py-1 rounded-full bg-yellow-500/10 text-yellow-300 text-xs font-bold border border-yellow-500/20">Scikit-Learn</span>
+                            <span class="px-3 py-1 rounded-full bg-teal-500/10 text-teal-300 text-xs font-bold border border-teal-500/20">AlpineJS</span>
+                            <span class="px-3 py-1 rounded-full bg-purple-500/10 text-purple-300 text-xs font-bold border border-purple-500/20">Tailwind CSS</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Add To Playlist Modal -->
+        <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" x-show="addToPlaylistOpen" @click.self="addToPlaylistOpen = false">
+            <div class="glass-card p-8 rounded-3xl max-w-md w-full m-4 relative">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-bold">Add to Playlist</h2>
+                    <button @click="addToPlaylistOpen = false" class="text-gray-400 hover:text-white"><i class="ph-bold ph-x"></i></button>
+                </div>
+                <div class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar mb-4">
+                    <button @click="createAndAddToPlaylist()" class="w-full text-left p-3 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 flex items-center gap-3 text-violet-300"><i class="ph-bold ph-plus"></i> Create New Playlist</button>
+                    <template x-for="playlist in playlists" :key="playlist.id">
+                        <button @click="commitAddToPlaylist(playlist)" class="w-full text-left p-3 rounded-lg hover:bg-white/10 border border-transparent hover:border-white/10 flex justify-between items-center group">
+                            <span class="text-white font-medium truncate" x-text="playlist.name"></span>
+                            <span class="text-xs text-gray-500 group-hover:text-gray-400" x-text="playlist.tracks.length"></span>
+                        </button>
+                    </template>
+                    <div x-show="playlists.length === 0" class="text-center py-4 text-gray-500 text-sm">No playlists found.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export Modal -->
+        <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" x-show="exportOpen" @click.self="exportOpen = false">
+            <div class="glass-card p-8 rounded-3xl max-w-md w-full m-4 relative">
+                <h2 class="text-2xl font-bold mb-4">Export CSV</h2>
+                <p class="text-sm text-gray-400 mb-4">Select playlists to export.</p>
+                <div class="max-h-60 overflow-y-auto custom-scrollbar mb-6 space-y-2">
+                    <label class="flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 cursor-pointer border border-transparent hover:border-white/10">
+                        <input type="checkbox" value="favorites" x-model="selectedForExport" class="w-5 h-5 rounded border-gray-600 text-violet-500 focus:ring-violet-500 bg-gray-700">
+                        <span class="text-white font-medium">Liked Songs</span>
+                        <span class="text-xs text-gray-500 ml-auto" x-text="favorites.length + ' tracks'"></span>
+                    </label>
+                    <template x-for="playlist in playlists" :key="playlist.id">
+                        <label class="flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 cursor-pointer border border-transparent hover:border-white/10">
+                            <!-- Bind value as string to ensure it matches logic -->
+                            <input type="checkbox" :value="String(playlist.id)" x-model="selectedForExport" class="w-5 h-5 rounded border-gray-600 text-violet-500 focus:ring-violet-500 bg-gray-700">
+                            <span class="text-white font-medium" x-text="playlist.name"></span>
+                            <span class="text-xs text-gray-500 ml-auto" x-text="playlist.tracks.length + ' tracks'"></span>
+                        </label>
+                    </template>
+                </div>
+                <div class="flex gap-3">
+                    <button @click="exportOpen = false" class="flex-1 py-3 rounded-xl border border-white/10 text-gray-300 hover:bg-white/5">Cancel</button>
+                    <button @click="exportSelectedCSV" class="flex-1 py-3 rounded-xl bg-white text-black font-bold hover:scale-105 transition-transform">Download CSV</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- INTRO -->
+        <div x-show="view === 'intro'" class="fixed inset-0 z-[60] bg-[#09090b] flex items-center justify-center">
+            <div class="text-center max-w-md px-6">
+                <div class="w-20 h-20 rounded-3xl bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center shadow-2xl shadow-violet-900/30 mx-auto mb-8 animate-bounce"><i class="ph-fill ph-wave-sine text-white text-4xl"></i></div>
+                <h1 class="text-4xl font-bold mb-2">Welcome to MoodTune.</h1>
+                <p class="text-gray-400 mb-8">Your personal music discovery AI. What should we call you?</p>
+                <form @submit.prevent="saveUser" class="relative">
+                    <input type="text" x-model="userName" placeholder="Enter your name..." class="w-full bg-white/5 border border-white/10 rounded-xl py-4 px-6 text-center text-xl focus:outline-none focus:border-violet-500 transition-all placeholder-gray-600 text-white">
+                    <button type="submit" class="mt-6 w-full py-4 bg-white text-black font-bold rounded-xl hover:scale-[1.02] transition-transform" :disabled="!userName" :class="!userName ? 'opacity-50 cursor-not-allowed' : ''">Get Started</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- HOME -->
+        <div x-show="view === 'home'" x-transition:enter="transition ease-out duration-500" class="flex flex-col items-center">
+            <div class="text-center max-w-4xl mt-10 mb-20">
+                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-300 text-xs font-mono uppercase tracking-widest mb-6">
+                    <span class="w-2 h-2 rounded-full animate-pulse" :style="'background-color: ' + theme.primary"></span> Latest Stable Version
+                </div>
+                <h1 class="text-5xl md:text-7xl font-bold leading-tight mb-8 tracking-tight">
+                    Discover your <br />
+                    <span class="text-transparent bg-clip-text bg-gradient-to-r" :style="'background-image: linear-gradient(to right, ' + theme.primary + ', ' + theme.secondary + ', #ffffff)'">perfect vibe.</span>
+                </h1>
+                <p class="text-xl text-gray-400 mb-10 max-w-2xl mx-auto leading-relaxed">MoodTune uses advanced audio analysis to map your current emotions to a universe of 230,000+ tracks. No generic playlists. Just you and the music.</p>
+                <button @click="startDiscovery" class="group px-8 py-4 rounded-full bg-white text-black font-bold text-lg hover:scale-105 transition-all duration-300 shadow-2xl shadow-white/10 flex items-center mx-auto gap-3">
+                    Start Discovery <i class="ph-bold ph-arrow-right group-hover:translate-x-1 transition-transform"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- DISCOVER -->
+        <div x-show="view === 'discover'" class="max-w-5xl mx-auto">
+            <div class="flex justify-between items-end mb-10 border-b border-white/10 pb-4" x-show="step < 6">
+                <div><h2 class="text-3xl font-bold">Discovery Mode</h2><p class="text-gray-400 mt-1">Tune your experience.</p></div>
+                <div class="text-right"><span class="text-4xl font-mono font-bold" :style="'color: ' + theme.primary" x-text="step"></span><span class="text-gray-500 text-lg">/5</span></div>
+            </div>
+
+            <div x-show="step >= 1 && step <= 5" class="glass-card rounded-3xl p-10 md:p-16 relative overflow-hidden min-h-[500px] flex flex-col justify-center">
+                <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r transition-colors duration-500" :style="'--tw-gradient-from: ' + theme.primary + '; --tw-gradient-to: ' + theme.secondary" style="background-image: linear-gradient(to right, var(--tw-gradient-from), var(--tw-gradient-to))"></div>
+                <div class="max-w-xl mx-auto w-full">
+                    <div class="flex items-center gap-4 mb-8">
+                        <div class="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-2xl transition-colors duration-300" :style="'color: ' + theme.primary"><i class="ph" :class="questions[step-1]?.icon"></i></div>
+                        <div><h3 class="text-2xl font-bold" x-text="questions[step-1]?.title"></h3><p class="text-gray-400" x-text="questions[step-1]?.desc"></p></div>
+                    </div>
+                    
+                    <!-- SLIDERS 1-4 -->
+                    <div x-show="step <= 4" class="py-4">
+                        <div class="text-center mb-12 relative">
+                            <div class="text-5xl font-bold text-white transition-all duration-200 tracking-tight" 
+                                 :style="'text-shadow: 0 0 30px ' + theme.primary + '55'"
+                                 x-text="getDescriptor(questions[step-1]?.key, inputs[questions[step-1]?.key])">
+                            </div>
+                            <div class="text-xs font-mono uppercase tracking-widest text-gray-500 mt-2 opacity-70">Current Setting: <span x-text="inputs[questions[step-1]?.key]"></span>/10</div>
+                            <div x-show="step === 1" class="absolute -right-24 top-4 hidden md:flex items-center gap-2 text-gray-500 animate-hint"><i class="ph-bold ph-hand-pointing text-xl"></i> <span>Drag slider</span></div>
+                        </div>
+                        <input type="range" min="0" max="10" x-model="inputs[questions[step-1]?.key]" @input="updateTheme" class="w-full mb-4" :style="'accent-color: ' + theme.primary">
+                        <div class="range-ticks flex justify-between"><template x-for="i in 11"><div class="range-tick" :style="'left: ' + ((i-1)*10) + '%'"></div></template></div>
+                    </div>
+                    
+                    <!-- GENRE (5) -->
+                    <div x-show="step === 5">
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8">
+                            <template x-for="g in genres" :key="g.id">
+                                <button @click="inputs.genre = g.id" :class="inputs.genre === g.id ? 'text-white' : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'" :style="inputs.genre === g.id ? ('background-color: ' + theme.primary + '; border-color: ' + theme.primary) : ''" class="p-4 rounded-xl border text-left transition-all font-medium flex items-center justify-between group"><span x-text="g.label"></span><i class="ph-bold ph-check" x-show="inputs.genre === g.id"></i></button>
+                            </template>
+                        </div>
+                        <!-- Centered button removed here -->
+                    </div>
+
+                    <!-- UNIFIED FOOTER NAVIGATION -->
+                    <div class="mt-12 flex justify-between pt-8 border-t border-white/5">
+                        <!-- Back Button (Always visible unless on step 1, logic handled in x-show) -->
+                        <button @click="prevStep" class="text-gray-500 hover:text-white transition-colors flex items-center gap-2">
+                            <i class="ph-bold ph-arrow-left"></i> Back
+                        </button>
+
+                        <!-- Next Button (Steps 1-4) -->
+                        <button x-show="step <= 4" @click="nextStep" class="bg-white text-black px-8 py-3 rounded-full font-bold hover:scale-105 transition-transform flex items-center gap-2">
+                            Next <i class="ph-bold ph-caret-right"></i>
+                        </button>
+
+                        <!-- Get Recommendations Button (Step 5 Only - Placed exactly where Next is) -->
+                        <button x-show="step === 5" @click="submitQuiz" class="bg-white text-black px-8 py-3 rounded-full font-bold hover:scale-105 transition-transform shadow-lg shadow-white/20 flex items-center gap-2">
+                            Get Recommendations <i class="ph-bold ph-sparkle"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div x-show="step === 6 && loading" class="glass-card rounded-3xl p-20 text-center flex flex-col items-center justify-center min-h-[500px]">
+                <div class="w-20 h-20 border-4 border-white/10 rounded-full animate-spin mb-8" :style="'border-top-color: ' + theme.primary"></div>
+                <h3 class="text-2xl font-bold text-white mb-2">Analyzing...</h3>
+                <p class="text-gray-400 animate-pulse">Scanning 230,000+ tracks.</p>
+            </div>
+
+            <!-- Results -->
+            <div x-show="step === 6 && !loading && recommendations.length > 0">
+                <div class="flex flex-wrap gap-4 justify-between items-center mb-8">
+                    <button @click="restart" class="flex items-center gap-2 text-gray-400 hover:text-white"><i class="ph-bold ph-arrow-left"></i> New Search</button>
+                    <div class="flex gap-3">
+                        <button @click="createPlaylist()" class="px-5 py-2 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors flex items-center gap-2"><i class="ph-bold ph-playlist"></i> Save Playlist</button>
+                        <button @click="reshuffle" class="px-5 py-2 rounded-lg bg-white/5 text-white border border-white/10 hover:bg-white/10 transition-colors"><i class="ph-bold ph-shuffle"></i> Shuffle</button>
+                    </div>
+                </div>
+                
+                <div class="glass-card p-8 rounded-2xl mb-8 border-l-4 bg-gradient-to-r from-white/5 to-transparent" :style="'border-color: ' + theme.primary">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="text-xl font-bold" :style="'color: ' + theme.primary" x-text="oneLiner"></h3>
+                        <button @click="reportExpanded = !reportExpanded" class="text-sm text-gray-400 hover:text-white flex items-center gap-1">
+                             <span x-text="reportExpanded ? 'Collapse' : 'View Analysis'"></span> <i class="ph-bold" :class="reportExpanded ? 'ph-caret-up' : 'ph-caret-down'"></i>
+                        </button>
+                    </div>
+                    <div x-show="reportExpanded" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" class="text-lg font-light text-gray-100 leading-relaxed italic mt-4">
+                        "<span x-text="moodReport"></span>"
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <template x-for="track in recommendations" :key="track.id">
+                        <div class="glass-card p-4 rounded-xl hover:bg-white/5 transition-all group relative">
+                            <div class="flex justify-between items-start mb-3">
+                                <div class="w-12 h-12 rounded flex items-center justify-center text-xl text-white shadow-lg" :style="{ background: getGradient(track.name) }"><i class="ph-fill ph-music-note"></i></div>
+                                <div class="flex gap-2">
+                                    <button @click="toggleFavorite(track)" class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/20 transition-colors"><i :class="isFavorite(track.id) ? 'ph-fill text-red-500' : 'ph-bold text-gray-400'" class="ph-heart"></i></button>
+                                    <button @click="openAddToPlaylist(track)" class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/20 transition-colors"><i class="ph-bold ph-list-plus text-gray-400 hover:text-white"></i></button>
+                                    <a :href="'https://open.spotify.com/track/' + track.id" target="_blank" class="w-8 h-8 rounded-full bg-[#1DB954] hover:bg-[#1ed760] text-black flex items-center justify-center hover:scale-105 shadow-lg"><i class="ph-fill ph-play"></i></a>
+                                </div>
+                            </div>
+                            <div class="mb-4"><h4 class="font-bold text-white truncate" x-text="track.name"></h4><p class="text-sm text-gray-400 truncate" x-text="track.artist"></p></div>
+                            
+                            <!-- Cleaned up Footer (No Year) -->
+                            <div class="flex justify-between items-center pt-3 border-t border-white/5">
+                                <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded" x-text="Math.round(track.match_score * 100) + '% Match'"></span>
+                                <!-- Year span removed here -->
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+        
+        <!-- LIBRARY -->
+        <div x-show="view === 'library'" class="max-w-7xl mx-auto relative">
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h2 class="text-3xl font-bold mb-2"><span x-text="userName"></span>'s Library</h2>
+                    <div class="relative w-full max-w-md">
+                        <input type="text" x-model="searchQuery" placeholder="Search playlists..." 
+                               class="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 focus:outline-none focus:border-violet-500 transition-colors">
+                        <i class="ph-bold ph-magnifying-glass absolute left-3 top-3.5 text-gray-400"></i>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <!-- Import Removed -->
+                    <button @click="openExportModal" class="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors flex items-center gap-2"><i class="ph-bold ph-download"></i> Export</button>
+                    <button @click="createNewPlaylist" class="px-5 py-3 rounded-xl bg-white text-black font-bold hover:scale-105 transition-transform flex items-center gap-2 ml-2"><i class="ph-bold ph-plus"></i> Create</button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                <!-- Liked Songs Card -->
+                <div @click="openSidebar('favorites')" class="glass-card p-6 rounded-2xl hover:bg-white/10 cursor-pointer transition-all group flex flex-col items-center justify-center h-48 border-t-4 border-red-500">
+                    <div class="w-16 h-16 rounded-full bg-gradient-to-br from-red-500 to-pink-600 flex items-center justify-center text-2xl shadow-lg mb-4 group-hover:scale-110 transition-transform"><i class="ph-fill ph-heart text-white"></i></div>
+                    <h3 class="text-xl font-bold">Liked Songs</h3>
+                    <p class="text-gray-400 text-sm mt-1" x-text="favorites.length + ' Tracks'"></p>
+                </div>
+
+                <!-- Playlist Cards -->
+                <template x-for="playlist in filteredPlaylists" :key="playlist.id">
+                    <div @click="openSidebar('playlist', playlist)" 
+                         class="glass-card p-6 rounded-2xl hover:bg-white/10 cursor-pointer transition-all group flex flex-col items-center justify-center h-48 border-t-4"
+                         :class="'border-' + getPlaylistColor(playlist).split(' ')[0].replace('from-','')">
+                         
+                        <div class="w-16 h-16 rounded-full bg-gradient-to-br flex items-center justify-center text-2xl shadow-lg mb-4 group-hover:scale-110 transition-transform"
+                             :class="getPlaylistColor(playlist)">
+                            <i class="ph-fill ph-playlist text-white"></i>
+                        </div>
+                        <h3 class="text-lg font-bold truncate w-full text-center" x-text="playlist.name"></h3>
+                        <p class="text-gray-400 text-sm mt-1" x-text="playlist.tracks.length + ' Tracks'"></p>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- SIDEBAR (Redesigned) -->
+        <div class="fixed inset-0 z-50 flex justify-end pointer-events-none" x-show="sidebarOpen">
+            <!-- Backdrop -->
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-md pointer-events-auto transition-opacity duration-500" 
+                 x-show="sidebarOpen" 
+                 x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" 
+                 x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" 
+                 @click="closeSidebar">
+            </div>
+            
+            <!-- Panel -->
+            <div class="w-full max-w-md md:max-w-lg h-full bg-[#09090b] border-l border-white/10 shadow-2xl pointer-events-auto flex flex-col transform transition-transform duration-300 relative" 
+                 x-show="sidebarOpen" 
+                 x-transition:enter="translate-x-full" x-transition:enter-end="translate-x-0" 
+                 x-transition:leave="translate-x-0" x-transition:leave-end="translate-x-full">
+                
+                <!-- Header / Mood Context -->
+                <div class="relative overflow-hidden shrink-0">
+                    <!-- Dynamic Background Gradient -->
+                    <div class="absolute inset-0 opacity-30 bg-gradient-to-b" 
+                         :class="activePlaylist ? getPlaylistColor(activePlaylist) : ''">
+                    </div>
+                    <div class="absolute inset-0 bg-gradient-to-b from-transparent via-[#09090b]/50 to-[#09090b]"></div>
+
+                    <div class="relative z-10 p-6 pb-4">
+                        <div class="flex justify-between items-start mb-4">
+                            <button @click="closeSidebar" class="w-8 h-8 rounded-full bg-white/10 backdrop-blur hover:bg-white/20 flex items-center justify-center transition-colors">
+                                <i class="ph-bold ph-x text-white"></i>
+                            </button>
+                            
+                            <!-- Action Menu -->
+                            <div class="flex gap-2" x-show="activePlaylist?.type === 'playlist'">
+                                <button @click="editPlaylistName(activePlaylist.id)" class="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-medium transition-colors flex items-center gap-2">
+                                    <i class="ph-bold ph-pencil-simple"></i> Rename
+                                </button>
+                                <button @click="deletePlaylist(activePlaylist.id)" class="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 text-xs font-medium transition-colors flex items-center gap-2">
+                                    <i class="ph-bold ph-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Playlist Identity -->
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-white/60">
+                                <i class="ph-fill ph-calendar-blank"></i>
+                                <span x-text="activePlaylist?.date || 'Collection'"></span>
+                                <span>•</span>
+                                <span x-text="activePlaylist?.tracks.length + ' Tracks'"></span>
+                            </div>
+                            <h2 class="text-2xl md:text-3xl font-bold text-white leading-tight truncate" x-text="activePlaylist?.name"></h2>
+                            
+                            <!-- The Vibe / One Liner -->
+                            <div class="pt-2">
+                                <div class="inline-block px-3 py-1.5 rounded-lg bg-white/10 border border-white/10 backdrop-blur-sm">
+                                    <p class="text-sm font-medium text-transparent bg-clip-text bg-gradient-to-r from-white to-white/60" 
+                                       x-text="activePlaylist?.oneLiner || 'Custom Selection'">
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Content Area -->
+                <div class="p-6 pt-0 flex-grow flex flex-col overflow-hidden">
+                    
+                    <!-- Collapsible Mood Report -->
+                    <div class="mb-4 shrink-0" x-show="activePlaylist?.report">
+                        <button @click="sidebarReportExpanded = !sidebarReportExpanded" 
+                                class="w-full flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors group">
+                            <div class="flex items-center gap-3 overflow-hidden">
+                                <div class="w-1 h-8 rounded-full shrink-0" :class="activePlaylist ? getPlaylistColor(activePlaylist).replace('from-', 'bg-') : 'bg-gray-500'"></div>
+                                <div class="text-left truncate">
+                                    <h4 class="text-[10px] font-bold text-white/50 uppercase tracking-wider">Sonic Analysis</h4>
+                                    <div class="text-xs text-gray-400 truncate" x-text="sidebarReportExpanded ? 'Hide details' : 'Read full mood report'"></div>
+                                </div>
+                            </div>
+                            <i class="ph-bold text-gray-400 transition-transform duration-300" :class="sidebarReportExpanded ? 'ph-caret-up' : 'ph-caret-down'"></i>
+                        </button>
+                        
+                        <div x-show="sidebarReportExpanded" 
+                             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
+                             class="mt-2 p-3 rounded-xl bg-white/5 border border-white/10">
+                            <p class="text-sm text-gray-300 italic leading-relaxed" x-text="activePlaylist?.report"></p>
+                        </div>
+                    </div>
+
+                    <!-- Search -->
+                    <div class="relative mb-2 shrink-0">
+                        <input type="text" x-model="searchQuery" placeholder="Filter tracks..." class="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-9 pr-4 focus:outline-none focus:border-violet-500 text-sm transition-all focus:bg-white/10">
+                        <i class="ph-bold ph-magnifying-glass absolute left-3 top-2.5 text-gray-400"></i>
+                    </div>
+
+                    <!-- Track List -->
+                    <div class="flex-grow overflow-y-auto custom-scrollbar -mx-2 px-2 space-y-1">
+                        <template x-for="(track, idx) in activeTracks" :key="idx">
+                            <div class="flex items-center justify-between p-2 rounded-lg hover:bg-white/5 group transition-all border border-transparent hover:border-white/5">
+                                <div class="flex items-center gap-3 overflow-hidden w-full">
+                                    <span class="text-xs text-gray-600 w-5 font-mono text-center group-hover:text-white transition-colors" x-text="idx + 1"></span>
+                                    
+                                    <!-- Play Button / Art -->
+                                    <a :href="'https://open.spotify.com/track/' + track.id" target="_blank" class="w-8 h-8 rounded bg-white/5 flex items-center justify-center text-gray-400 hover:text-white hover:bg-green-500 hover:scale-105 transition-all shrink-0 shadow-lg group/play">
+                                        <i class="ph-fill ph-play text-sm group-hover/play:text-black ml-0.5"></i>
+                                    </a>
+
+                                    <div class="min-w-0 flex-1">
+                                        <div class="font-bold text-gray-200 truncate text-sm group-hover:text-white" x-text="track.name"></div>
+                                        <div class="text-xs text-gray-500 truncate group-hover:text-gray-400" x-text="track.artist"></div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Track Actions -->
+                                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity pl-2">
+                                    <button @click.stop="toggleFavorite(track)" class="w-7 h-7 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors">
+                                        <i :class="isFavorite(track.id) ? 'ph-fill text-red-500' : 'ph-bold text-gray-400'" class="ph-heart text-sm"></i>
+                                    </button>
+                                    <button @click.stop="if(confirm('Remove from playlist?')) { activePlaylist.tracks.splice(idx,1); localStorage.setItem('moodtune_playlists', JSON.stringify(playlists)); }" 
+                                            x-show="activePlaylist.type !== 'favorites'" 
+                                            class="w-7 h-7 rounded-full hover:bg-red-500/20 flex items-center justify-center text-gray-400 hover:text-red-400 transition-colors">
+                                        <i class="ph-bold ph-minus text-sm"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                        
+                        <div x-show="activeTracks.length === 0" class="text-center py-12 flex flex-col items-center justify-center text-gray-500 opacity-50">
+                            <i class="ph-duotone ph-music-notes-simple text-3xl mb-2"></i>
+                            <span class="text-xs">No tracks found</span>
+                        </div>
+                        
+                        <!-- Bottom Spacer -->
+                        <div class="h-8"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+</body>
+</html>

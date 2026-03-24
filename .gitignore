@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+data/
+
+dataset1_old.csv
+dataset3_modern.csv
+dataset4_modern.csv
+dataset5_modern.csv
+dataset6_modern.csv
